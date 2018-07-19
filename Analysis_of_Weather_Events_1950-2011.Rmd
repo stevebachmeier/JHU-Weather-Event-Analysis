@@ -264,6 +264,9 @@ With nearly 1000 different severe weather event types recorded in the NOAA data 
 **With respect to the impact on the economy goes, flood have by far the most economic impact and droughts have by far the most impact specifically on crops.** Floods have caused a total of $150.3 billion USD in total damage (property and crop) which accounts for 31.6% of total damage caused by all recorded weather events. Droughts have caused a total of $14.0 billion USD in crop damage which accounts for 28.5% of crop damage caused by all recorded weather events.
 
 ## Limitations of this analysis
-Possibly the single biggest limitation with this analysis is that it does not in any way account for changes over time. It is conceivable that certain event types may change character over the years which in turn could change how harmful they are.
+It is known that some similar (or even identical) event types are given different names and should be combined, eg EXCESSIVE HEAT and HEAT should both be called "HEAT". It is unknown have big of an impact this has on the analysis but is potentially very large and should be addressed as soon as possible.
 
-Another limitation is that this analysis did not attempt to search for outliers (e.g. particularly large hurricanes, etc). Future work should be completed to see if any of the results are skewed by just a few particularly bad weather events.
+Another limitatiion is that this analysis does not in any way account for changes over time. It is conceivable that certain event types may change character over the years which in turn could change how harmful they are.
+
+Finally, note that this analysis did not attempt to search for outliers (e.g. particularly large hurricanes, etc). Future work should be completed to see if any of the results are skewed by just a few particularly bad weather events.
+
