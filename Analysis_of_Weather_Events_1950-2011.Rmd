@@ -1,0 +1,269 @@
+---
+title: "Analysis of Weather Events, 1950-2011"
+author: "Steve Bachmeier"
+date: "July 18, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Synopsis
+
+This analysis uses the U.S. National Oceanic and Atmospheric Administration's storm data base (1950-2011) to determine which severe weather events are most damaging to public health and to the economy.
+
+It was found that tornadoes are the most damaging to the public health, causing by far the largest number of fatalities and injuries out of all of the events logged.
+
+With respect to economic impact, flooding has caused the majority of property damage while droughts have cause the majority of crop damage. It should be noted, however, that the values of property damage are an order of magnitude larger than those of crop damage.
+
+# Goal
+
+The purpose of this analysis is to use the U.S. National Oceanic and Atmospheric Administration's (NOAA's) storm database to determine which types of severe weather events are most harmful with respect to public health and the economy. Specifically, it attempts to answer the following two questions:
+
+1. Across the U.S., which types of events (designated by the EVTYPE variable in the NOAA database) are most harmful to the population health?
+
+2. Across the U.S., which types of events (EVTYPE variable) have the greatest economic impact?
+
+# Libraries
+```{r, results='hide'}
+library(dplyr)
+```
+
+# Data processing
+This section describes how the raw NOAA data set was retrieved and what steps were taken to process it into a usable data frame for analysis.
+
+## Downloading the data set
+The zipped (.bz2) NOAA severe weather data set was downloaded directly from their website and
+saved in a "data" folder as StormData.bz2.
+
+```{r, cache=TRUE}
+if (!dir.exists("data/")) {
+    dir.create("data/")
+}
+
+download.file(url="https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", 
+              destfile="data/StormData.bz2", mode="wb")
+```
+
+## Reading the raw data into R
+This zipped file was then read into R using the read.table function; note that read.table does not require the file to be unzipped first.
+
+```{r, cache=TRUE}
+raw <- read.table(file="data/StormData.bz2", header=TRUE, sep=",")
+```
+
+## Creating relevant data frame
+The raw data set has a rather large amount of variables, many of which are not useful for this analysis.
+
+```{r}
+names(raw)
+```
+
+The only variables kept for the analysis are those related to injuries/fatalities and monetary damage, EVTYPE, and REFNUM (as the primary key).
+
+```{r}
+keep <- c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", 
+          "CROPDMG", "CROPDMGEXP")
+
+df <- select(raw, keep)
+```
+
+### Cleaning the data frame
+We can check if there are any NAs in the data frame.
+```{r}
+print(paste0("Percentage of NAs in the data frame: ",
+             round(sum(is.na(df))/(nrow(df)*ncol(df))*100, 1),"%"))
+```
+
+There are no NAs in the data frame so no imputation is needed.
+
+As the data already appears clean and tidy, the only thing left is to convert all of the factor variables to character strings.
+
+```{r}
+df$EVTYPE <- as.character(df$EVTYPE)
+df$PROPDMGEXP <- as.character(df$PROPDMGEXP)
+df$CROPDMGEXP <- as.character(df$CROPDMGEXP)
+```
+
+The final workable data frame then looks like this:
+
+```{r}
+head(df)
+str(df)
+```
+
+# Analysis
+This section outlines the analysis completed.
+
+## Health impact
+The two variables in the data frame related to populatin health are INJURIES and FATALITIES. Three new data frames are created to summarize the total number of injuries, the total number of fatalities, and the sum of the two by event type. Note that each of the data frames are filtered to only include numbers greater than zero and are arranged in descending order.
+
+```{r}
+df <- mutate(df, TOTAL_EFFECTED=FATALITIES+INJURIES)
+df1 <- summarize(group_by(df, EVTYPE), TOTAL_FATALITIES=sum(FATALITIES)) %>%
+    filter(TOTAL_FATALITIES>0) %>% arrange(desc(TOTAL_FATALITIES))
+df2 <- summarize(group_by(df, EVTYPE), TOTAL_INJURIES=sum(INJURIES)) %>%
+    filter(TOTAL_INJURIES>0) %>% arrange(desc(TOTAL_INJURIES))
+df3 <- summarize(group_by(df, EVTYPE), TOTAL=sum(TOTAL_EFFECTED)) %>%
+    filter(TOTAL>0) %>% arrange(desc(TOTAL))
+```
+
+## Economic impact
+For this analysis, the economic impact is defined as the sum of property damage and crop damage (the variables PROPDMG and CROPDMG, respectively). There are two additional variables of interest which correspond to property and crop damage: the property and crop damage exponents (PROPDMGEXP and CROPDMGEXP, respectively). An explanation of these variables can be found at: https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html
+
+The following unique characters exiest for the two exponent variables:
+
+```{r}
+sort(unique(unique(df$PROPDMGEXP), unique(df$CROPDMGEXP)))
+```
+
+From the above reference, these characters correspond to the following multipliers:
+* -,?,blank = 0
+* + = 1
+* 0,1,...,8 = 10
+* H,h = 100
+* K,k = 1,000
+* M,m = 1,000,000
+* B,b = 1,000,000,000
+
+Let's start by replacing the "" exponents with " " (this allows the mapping approach outlined below to work properly).
+
+```{r}
+df$PROPDMGEXP[df$PROPDMGEXP==""] <- " "
+df$CROPDMGEXP[df$CROPDMGEXP==""] <- " "
+```
+
+We can now create a matrix which maps the unique exponents to their respective multipliers
+
+```{r}
+EXPMAP <- c(0,0,0,0,1,10,10,10,10,10,10,10,10,10,100,100,1000,1000,
+            1e6,1e6,1e9,1e9)
+names(EXPMAP) <- c("-","?"," ","","+","0","1","2","3","4","5","6","7","8",
+                   "H","h","K","k","M","m","B","b")
+```
+
+Now let's create the damage multiplier variables.
+
+```{r}
+df$PROPDMGMULTIPLIER <- EXPMAP[df$PROPDMGEXP]
+df$CROPDMGMULTIPLIER <- EXPMAP[df$CROPDMGEXP]
+```
+
+We can finally add property damage columns to the data frame in USD.
+
+```{r}
+df$PROPDMGUSD <- df$PROPDMG * df$PROPDMGMULTIPLIER
+df$CROPDMGUSD <- df$CROPDMG * df$CROPDMGMULTIPLIER
+df$TOTALDMGUSD <- df$PROPDMGUSD + df$CROPDMGUSD
+```
+
+As before, let's summarize these three variables by event type.
+
+```{r}
+df4 <- summarize(group_by(df, EVTYPE), PROP_DAMAGE=sum(PROPDMGUSD)) %>%
+    filter(PROP_DAMAGE>0) %>% arrange(desc(PROP_DAMAGE))
+df5 <- summarize(group_by(df, EVTYPE), CROP_DAMAGE=sum(CROPDMGUSD)) %>%
+    filter(CROP_DAMAGE>0) %>% arrange(desc(CROP_DAMAGE))
+df6 <- summarize(group_by(df, EVTYPE), TOTAL_DAMAGE=sum(TOTALDMGUSD)) %>%
+    filter(TOTAL_DAMAGE>0) %>% arrange(desc(TOTAL_DAMAGE))
+```
+
+# Results
+The results of the analysis are outlined below.
+
+## Health impact
+From the analysis section above, df1, df2, and df3 are summary data frames that show, by event type, the total number of fatalities, injuries, and the sum of the two, respectively.
+
+```{r}
+head(df1, 5)
+head(df2, 5)
+head(df3, 5)
+```
+
+Regardless of whether one defines the impact on population health as number of injuries or number of deaths (or a sum of the two), tornados are by far the biggest offender. In terms of fatalities, the next worst event types are excessive heat, flash floods, heat, and lightning. Lumping "excessive heat" and "heat" into one basic event type provides the clear second-worst for fatalities.
+
+```{r, results="hide"}
+print(paste0("Total number of deaths from ",df1$EVTYPE[1],": ",df1$TOTAL_FATALITIES[1]))
+print(paste0("Total number of deaths from ",df1$EVTYPE[2]," and ",
+             df1$EVTYPE[4],": ",df1$TOTAL_FATALITIES[2]+df1$TOTAL_FATALITIES[4]))
+```
+
+```{r, echo=FALSE}
+print(paste0("Total number of deaths from ",df1$EVTYPE[1],": ",df1$TOTAL_FATALITIES[1]))
+print(paste0("Total number of deaths from ",df1$EVTYPE[2]," and ",
+             df1$EVTYPE[4],": ",df1$TOTAL_FATALITIES[2]+df1$TOTAL_FATALITIES[4]))
+```
+
+As far as considering injuries as the primary driver, tornadoes are such a large cause that it can be considered the only relevant event type.
+
+```{r}
+print(paste0("Total number of injuries from ",df2$EVTYPE[1],": ",df2$TOTAL_INJURIES[1]))
+```
+
+A bar plot of the top five rows of these three data frames is shown below. Again, note that tornadoes are by far the most damaging event type regardless of whether one considers fatalities, injuries, or both. Also note that the y-axis is the number of people in thousands.
+
+```{r}
+par(mar=c(9,4,2,1))
+par(mfrow=c(1,3))
+barplot(height=df1$TOTAL_FATALITIES[1:5]/1000, names.arg=df1$EVTYPE[1:5], 
+        ylab="Number (thousands)", las=2, main="Fatalities")
+barplot(height=df2$TOTAL_INJURIES[1:5]/1000, names.arg=df2$EVTYPE[1:5], 
+        ylab="Number (thousands)", las=2, main="Injuries")
+barplot(height=df3$TOTAL[1:5]/1000, names.arg=df3$EVTYPE[1:5], 
+        ylab="Number (thousands)", las=2, main="Total")
+```
+
+## Economic impact
+From the analysis section above, df4, df5, and df6 are summary data frames that show, by event type, the total property damage, crop damage, and the sum of the two, respectively (in USD).
+
+```{r}
+head(df4, 5)
+head(df5, 5)
+head(df6, 5)
+```
+
+```{r, results="hide"}
+print(paste0("Total property damage from ",df4$EVTYPE[1],": ",
+             round(df4$PROP_DAMAGE[1]/1e9, 1)," billion USD"))
+print(paste0("Total crop damage from ",df5$EVTYPE[1],": ",
+             round(df5$CROP_DAMAGE[1]/1e9, 1), " billion USD"))
+print(paste0("Total (property and crop) damage from ",df6$EVTYPE[1],": ",
+             round(df6$TOTAL_DAMAGE[1]/1e9, 1), " billion USD"))
+```
+
+```{r, echo=FALSE}
+print(paste0("Total property damage from ",df4$EVTYPE[1],": ",
+             round(df4$PROP_DAMAGE[1]/1e9, 1)," billion USD"))
+print(paste0("Total crop damage from ",df5$EVTYPE[1],": ",
+             round(df5$CROP_DAMAGE[1]/1e9, 1), " billion USD"))
+print(paste0("Total (property and crop) damage from ",df6$EVTYPE[1],": ",
+             round(df6$TOTAL_DAMAGE[1]/1e9, 1), " billion USD"))
+```
+
+A bar plot of the top five rows of these three data frames is shown below. Note that the y-axis is the amount of damage in billions of USD.
+
+```{r}
+par(mar=c(11,4,2,3))
+par(mfrow=c(1,3))
+barplot(height=df4$PROP_DAMAGE[1:5]/1e9, names.arg=df4$EVTYPE[1:5], 
+        ylab="billions USD", las=2, main="Property damage")
+barplot(height=df5$CROP_DAMAGE[1:5]/1e9, names.arg=df5$EVTYPE[1:5], 
+        ylab="billions USD", las=2, main="Crop damage")
+barplot(height=df6$TOTAL_DAMAGE[1:5]/1e9, names.arg=df6$EVTYPE[1:5], 
+        ylab="billions USD", las=2, main="Total (property and crop) damage")
+```
+
+From the plots above, it can be seen that the most damaging event type in all three cases seems to have a far larger economic impact than the second most damaging. Also, notice that property damage seems to be an entire order of magnitude larger than crop damage. As such, by far the biggest offender on economic impact is flooding. Droughts, on the other hand, is the most damaging weather event type to crops (with floods being a distant second). 
+
+# Suggestions
+With nearly 1000 different severe weather event types recorded in the NOAA data set used for this analysis, it's imperative that we have a plan of attack for research, spending, and perhaps policy-making so that the top offender(s) can be focused on. 
+
+**As far as the impact on the population health goes, tornadoes are by far the most significant weather event**, causing 5633 fatalities and 91346 injuries for a total of 96979 individuals effected - this makes up for 62.3% of the total number of fatalities and injuries from all recorded weather events! 
+
+**With respect to the impact on the economy goes, flood have by far the most economic impact and droughts have by far the most impact specifically on crops.** Floods have caused a total of $150.3 billion USD in total damage (property and crop) which accounts for 31.6% of total damage caused by all recorded weather events. Droughts have caused a total of $14.0 billion USD in crop damage which accounts for 28.5% of crop damage caused by all recorded weather events.
+
+## Limitations of this analysis
+Possibly the single biggest limitation with this analysis is that it does not in any way account for changes over time. It is conceivable that certain event types may change character over the years which in turn could change how harmful they are.
+
+Another limitation is that this analysis did not attempt to search for outliers (e.g. particularly large hurricanes, etc). Future work should be completed to see if any of the results are skewed by just a few particularly bad weather events.
