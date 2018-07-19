@@ -1,5 +1,5 @@
 ---
-title: "Analysis of Weather Events, 1950-2011"
+title: "Analysis of Severe Weather Events on Population Health and Economic Impact, 1950-2011"
 author: "Steve Bachmeier"
 date: "July 18, 2018"
 output: html_document
